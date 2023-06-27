@@ -142,13 +142,17 @@ type optionFunc func(*config)
 func (fn optionFunc) apply(c *config) { fn(c) }
 
 type config struct {
-	levels       []zerolog.Level
-	sampleRate   float64
-	release      string
-	environment  string
-	serverName   string
-	debug        bool
-	flushTimeout time.Duration
+	levels             []zerolog.Level
+	sampleRate         float64
+	release            string
+	environment        string
+	serverName         string
+	tracesSampleRate   float64
+	tracesSampler      sentry.TracesSampler
+	profilesSampleRate float64
+	enableTracing      bool
+	debug              bool
+	flushTimeout       time.Duration
 }
 
 // WithLevels configures zerolog levels that have to be sent to Sentry. Default levels are error, fatal, panic
@@ -184,6 +188,30 @@ func WithServerName(serverName string) WriterOption {
 	})
 }
 
+func WithEnableTracing(enableTracing bool) WriterOption {
+	return optionFunc(func(cfg *config) {
+		cfg.enableTracing = enableTracing
+	})
+}
+
+func WithTracesSampleRate(tracesSampleRate float64) WriterOption {
+	return optionFunc(func(cfg *config) {
+		cfg.tracesSampleRate = tracesSampleRate
+	})
+}
+
+func WithTracesSampler(tracesSampler sentry.TracesSampler) WriterOption {
+	return optionFunc(func(cfg *config) {
+		cfg.tracesSampler = tracesSampler
+	})
+}
+
+func WithProfilesSampleRate(profilesSampleRate float64) WriterOption {
+	return optionFunc(func(cfg *config) {
+		cfg.profilesSampleRate = profilesSampleRate
+	})
+}
+
 // WithDebug enables sentry client debug logs
 func WithDebug() WriterOption {
 	return optionFunc(func(cfg *config) {
@@ -193,21 +221,26 @@ func WithDebug() WriterOption {
 
 func New(dsn string, opts ...WriterOption) (*Writer, error) {
 	cfg := newDefaultConfig()
-	for _, opt := range opts {
-		opt.apply(&cfg)
-	}
+	if len(opts) > 0 {
+		for _, opt := range opts {
+			opt.apply(&cfg)
+		}
+		err := sentry.Init(sentry.ClientOptions{
+			Dsn:                dsn,
+			SampleRate:         cfg.sampleRate,
+			Release:            cfg.release,
+			Environment:        cfg.environment,
+			ServerName:         cfg.serverName,
+			EnableTracing:      cfg.enableTracing,
+			TracesSampleRate:   cfg.tracesSampleRate,
+			ProfilesSampleRate: cfg.profilesSampleRate,
+			TracesSampler:      cfg.tracesSampler,
+			Debug:              cfg.debug,
+		})
 
-	err := sentry.Init(sentry.ClientOptions{
-		Dsn:         dsn,
-		SampleRate:  cfg.sampleRate,
-		Release:     cfg.release,
-		Environment: cfg.environment,
-		ServerName:  cfg.serverName,
-		Debug:       cfg.debug,
-	})
-
-	if err != nil {
-		return nil, err
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	levels := make(map[zerolog.Level]struct{}, len(cfg.levels))
