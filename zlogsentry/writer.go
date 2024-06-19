@@ -1,6 +1,9 @@
 package zlogsentry
 
 import (
+	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"time"
 	"unsafe"
@@ -9,6 +12,11 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/tidwall/gjson"
 )
+
+type ErrWithStackTrace struct {
+	Err        string             `json:"error"`
+	Stacktrace *sentry.Stacktrace `json:"stacktrace"`
+}
 
 var levelsMapping = map[zerolog.Level]sentry.Level{
 	zerolog.DebugLevel: sentry.LevelDebug,
@@ -24,21 +32,85 @@ var _ = io.WriteCloser(new(Writer))
 type Writer struct {
 	hub *sentry.Hub
 
-	levels       map[zerolog.Level]struct{}
-	flushTimeout time.Duration
+	levels          map[zerolog.Level]struct{}
+	flushTimeout    time.Duration
+	withBreadcrumbs bool
 }
 
-func (w *Writer) Write(data []byte) (int, error) {
-	event, ok := w.parseLogEvent(data)
-	if ok {
-		w.hub.CaptureEvent(event)
-		// should flush before os.Exit
-		if event.Level == sentry.LevelFatal {
-			w.hub.Flush(w.flushTimeout)
+// addBreadcrumb adds event as a breadcrumb
+func (w *Writer) addBreadcrumb(event *sentry.Event) {
+	if !w.withBreadcrumbs {
+		return
+	}
+
+	// category is totally optional, but it's nice to have
+	var category string
+	if _, ok := event.Extra["category"]; ok {
+		if v, ok := event.Extra["category"].(string); ok {
+			category = v
 		}
 	}
 
+	w.hub.AddBreadcrumb(&sentry.Breadcrumb{
+		Category: category,
+		Message:  event.Message,
+		Level:    event.Level,
+		Data:     event.Extra,
+	}, nil)
+}
+
+func (w *Writer) Write(data []byte) (int, error) {
+	n := len(data)
+	lvl, err := w.parseLogLevel(data)
+	if err != nil {
+		return n, nil
+	}
+
+	event, ok := w.parseLogEvent(data)
+	if !ok {
+		return n, nil
+	}
+
+	if _, enabled := w.levels[lvl]; !enabled {
+		// if the level is not enabled, add event as a breadcrumb
+		w.addBreadcrumb(event)
+		return n, nil
+	}
+
+	w.hub.CaptureEvent(event)
+	// should flush before os.Exit
+	if event.Level == sentry.LevelFatal {
+		w.hub.Flush(w.flushTimeout)
+	}
+
 	return len(data), nil
+}
+
+// implements zerolog.LevelWriter
+func (w *Writer) WriteLevel(level zerolog.Level, p []byte) (n int, err error) {
+	n = len(p)
+
+	event, ok := w.parseLogEvent(p)
+	if !ok {
+		return
+	}
+	event.Level, ok = levelsMapping[level]
+	if !ok {
+		return
+	}
+
+	if _, enabled := w.levels[level]; !enabled {
+		// if the level is not enabled, add event as a breadcrumb
+		w.addBreadcrumb(event)
+		return
+	}
+
+	w.hub.CaptureEvent(event)
+	// should flush before os.Exit
+	if event.Level == sentry.LevelFatal {
+		w.hub.Flush(w.flushTimeout)
+	}
+	return
 }
 
 func (w *Writer) Close() error {
@@ -46,50 +118,69 @@ func (w *Writer) Close() error {
 	return nil
 }
 
+// parses the log level from the encoded log
+func (w *Writer) parseLogLevel(data []byte) (zerolog.Level, error) {
+	lvlStr := gjson.GetBytes(data, zerolog.LevelFieldName).String()
+
+	return zerolog.ParseLevel(lvlStr)
+}
+
 func (w *Writer) parseLogEvent(data []byte) (*sentry.Event, bool) {
 	const logger = "zerolog"
 
-	lvlStr := gjson.GetBytes(data, zerolog.LevelFieldName).String()
-
-	lvl, err := zerolog.ParseLevel(lvlStr)
-	if err != nil {
-		return nil, false
-	}
-
-	_, enabled := w.levels[lvl]
-	if !enabled {
-		return nil, false
-	}
-
-	sentryLvl, ok := levelsMapping[lvl]
-	if !ok {
-		return nil, false
-	}
-
 	event := sentry.Event{
 		Timestamp: time.Now().UTC(),
-		Level:     sentryLvl,
 		Logger:    logger,
+		Contexts:  make(map[string]sentry.Context),
 	}
+
+	isStack := false
+	var errExept []sentry.Exception
+	payload := make(sentry.Context)
+
 	gjson.ParseBytes(data).ForEach(func(key, value gjson.Result) bool {
 		switch key.String() {
 		// case zerolog.LevelFieldName, zerolog.TimestampFieldName:
 		case zerolog.MessageFieldName:
 			event.Message = value.String()
 		case zerolog.ErrorFieldName:
-			event.Exception = append(event.Exception, sentry.Exception{
+			errExept = append(errExept, sentry.Exception{
 				Value:      value.String(),
 				Stacktrace: newStacktrace(),
 			})
-		case zerolog.LevelFieldName, zerolog.TimestampFieldName:
-		default:
-			if event.Extra == nil {
-				event.Extra = make(map[string]interface{})
+		case zerolog.ErrorStackFieldName:
+			var e ErrWithStackTrace
+			err := json.Unmarshal([]byte(value.Raw), &e)
+			if err != nil {
+				e := sentry.Event{
+					Timestamp: time.Now().UTC(),
+					Level:     sentry.LevelError,
+					Contexts:  make(map[string]sentry.Context),
+				}
+				e.Exception = append(event.Exception, sentry.Exception{
+					Value:      err.Error(),
+					Stacktrace: sentry.ExtractStacktrace(err),
+				})
+				e.Message = fmt.Sprintf("Error unmarshal: %s", value)
+				break
 			}
-			event.Extra[key.String()] = value.String()
+			event.Exception = append(event.Exception, sentry.Exception{
+				Value:      e.Err,
+				Stacktrace: e.Stacktrace,
+			})
+			isStack = true
+		default:
+			payload[string(key.String())] = value.String()
 		}
 		return true
 	})
+
+	if len(payload) != 0 {
+		event.Contexts["payload"] = payload
+	}
+	if !isStack && len(errExept) > 0 {
+		event.Exception = errExept
+	}
 
 	return &event, true
 }
@@ -147,10 +238,13 @@ type config struct {
 	release            string
 	environment        string
 	serverName         string
+	ignoreErrors       []string
+	breadcrumbs        bool
 	tracesSampleRate   float64
 	tracesSampler      sentry.TracesSampler
 	profilesSampleRate float64
 	enableTracing      bool
+	maxErrorDepth      int
 	debug              bool
 	flushTimeout       time.Duration
 }
@@ -188,6 +282,21 @@ func WithServerName(serverName string) WriterOption {
 	})
 }
 
+// WithIgnoreErrors configures the list of regexp strings that will be used to match against event's message
+// and if applicable, caught errors type and value. If the match is found, then a whole event will be dropped.
+func WithIgnoreErrors(reList []string) WriterOption {
+	return optionFunc(func(cfg *config) {
+		cfg.ignoreErrors = reList
+	})
+}
+
+// WithBreadcrumbs enables sentry client breadcrumbs.
+func WithBreadcrumbs() WriterOption {
+	return optionFunc(func(cfg *config) {
+		cfg.breadcrumbs = true
+	})
+}
+
 func WithEnableTracing(enableTracing bool) WriterOption {
 	return optionFunc(func(cfg *config) {
 		cfg.enableTracing = enableTracing
@@ -212,6 +321,13 @@ func WithProfilesSampleRate(profilesSampleRate float64) WriterOption {
 	})
 }
 
+// WithMaxErrorDepth sets the max depth of error chain.
+func WithMaxErrorDepth(maxErrorDepth int) WriterOption {
+	return optionFunc(func(cfg *config) {
+		cfg.maxErrorDepth = maxErrorDepth
+	})
+}
+
 // WithDebug enables sentry client debug logs
 func WithDebug() WriterOption {
 	return optionFunc(func(cfg *config) {
@@ -231,10 +347,12 @@ func New(dsn string, opts ...WriterOption) (*Writer, error) {
 			Release:            cfg.release,
 			Environment:        cfg.environment,
 			ServerName:         cfg.serverName,
+			IgnoreErrors:       cfg.ignoreErrors,
 			EnableTracing:      cfg.enableTracing,
 			TracesSampleRate:   cfg.tracesSampleRate,
 			ProfilesSampleRate: cfg.profilesSampleRate,
 			TracesSampler:      cfg.tracesSampler,
+			MaxErrorDepth:      cfg.maxErrorDepth,
 			Debug:              cfg.debug,
 		})
 
@@ -249,9 +367,34 @@ func New(dsn string, opts ...WriterOption) (*Writer, error) {
 	}
 
 	return &Writer{
-		hub:          sentry.CurrentHub(),
-		levels:       levels,
-		flushTimeout: cfg.flushTimeout,
+		hub:             sentry.CurrentHub(),
+		levels:          levels,
+		flushTimeout:    cfg.flushTimeout,
+		withBreadcrumbs: cfg.breadcrumbs,
+	}, nil
+}
+
+// NewWithHub creates a writer using an existing sentry Hub and options.
+func NewWithHub(hub *sentry.Hub, opts ...WriterOption) (*Writer, error) {
+	if hub == nil {
+		return nil, errors.New("hub cannot be nil")
+	}
+
+	cfg := newDefaultConfig()
+	for _, opt := range opts {
+		opt.apply(&cfg)
+	}
+
+	levels := make(map[zerolog.Level]struct{}, len(cfg.levels))
+	for _, lvl := range cfg.levels {
+		levels[lvl] = struct{}{}
+	}
+
+	return &Writer{
+		hub:             hub,
+		levels:          levels,
+		flushTimeout:    cfg.flushTimeout,
+		withBreadcrumbs: cfg.breadcrumbs,
 	}, nil
 }
 
