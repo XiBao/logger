@@ -152,16 +152,12 @@ func (w *Writer) parseLogEvent(data []byte) (*sentry.Event, bool) {
 			var e ErrWithStackTrace
 			err := json.Unmarshal([]byte(value.Raw), &e)
 			if err != nil {
-				e := sentry.Event{
-					Timestamp: time.Now().UTC(),
-					Level:     sentry.LevelError,
-					Contexts:  make(map[string]sentry.Context),
-				}
-				e.Exception = append(event.Exception, sentry.Exception{
+				event.Level = sentry.LevelError
+				event.Exception = append(event.Exception, sentry.Exception{
 					Value:      err.Error(),
 					Stacktrace: sentry.ExtractStacktrace(err),
 				})
-				e.Message = fmt.Sprintf("Error unmarshal: %s", value)
+				event.Message = fmt.Sprintf("Error unmarshal: %s", value)
 				break
 			}
 			event.Exception = append(event.Exception, sentry.Exception{
@@ -234,19 +230,19 @@ func (fn optionFunc) apply(c *config) { fn(c) }
 
 type config struct {
 	levels             []zerolog.Level
-	sampleRate         float64
+	ignoreErrors       []string
 	release            string
 	environment        string
 	serverName         string
-	ignoreErrors       []string
-	breadcrumbs        bool
-	tracesSampleRate   float64
 	tracesSampler      sentry.TracesSampler
+	sampleRate         float64
+	tracesSampleRate   float64
 	profilesSampleRate float64
-	enableTracing      bool
-	maxErrorDepth      int
-	debug              bool
 	flushTimeout       time.Duration
+	maxErrorDepth      int
+	breadcrumbs        bool
+	enableTracing      bool
+	debug              bool
 }
 
 // WithLevels configures zerolog levels that have to be sent to Sentry. Default levels are error, fatal, panic
@@ -355,7 +351,6 @@ func New(dsn string, opts ...WriterOption) (*Writer, error) {
 			MaxErrorDepth:      cfg.maxErrorDepth,
 			Debug:              cfg.debug,
 		})
-
 		if err != nil {
 			return nil, err
 		}
