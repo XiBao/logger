@@ -26,6 +26,7 @@ var (
 type (
 	// Adapter is a slog adapter for adapters. It implements the adapters.Logger interface.
 	Adapter struct {
+		adapters.Adapter
 		adapters *slog.Logger
 	}
 
@@ -35,8 +36,6 @@ type (
 		fields   []any
 		level    slog.Level
 	}
-
-	ctxKey struct{}
 )
 
 // NewAdapter creates a new slog adapter for adapters.
@@ -60,23 +59,6 @@ func releaseContext(ctx *Context) {
 
 func (a *Adapter) newContext(level slog.Level) *Context {
 	return newContext(level, a.adapters)
-}
-
-// Ctx returns the Logger associated with the ctx. If no adapters
-// is associated, DefaultContextLogger is returned, unless DefaultContextLogger
-// is nil, in which case a disabled adapters is returned.
-func (a *Adapter) Ctx(ctx context.Context) adapters.Logger {
-	if l, ok := ctx.Value(ctxKey{}).(adapters.Logger); ok {
-		return l
-	}
-	return &Adapter{adapters: slog.Default()}
-}
-
-func (a *Adapter) WithContext(ctx context.Context) context.Context {
-	if _, ok := ctx.Value(ctxKey{}).(adapters.Logger); !ok {
-		return ctx
-	}
-	return context.WithValue(ctx, ctxKey{}, a)
 }
 
 // With returns the adapters with the given fields.

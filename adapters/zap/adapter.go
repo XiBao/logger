@@ -1,7 +1,6 @@
 package zap
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"sync"
@@ -27,6 +26,7 @@ var (
 type (
 	// Adapter is a zap adapter for adapters. It implements the adapters.Logger interface.
 	Adapter struct {
+		adapters.Adapter
 		adapters *zap.Logger
 	}
 
@@ -61,23 +61,6 @@ func releaseContext(ctx *Context) {
 
 func (a *Adapter) newContext(level zapcore.Level) adapters.LoggerContext {
 	return newContext(level, a.adapters)
-}
-
-// Ctx returns the Logger associated with the ctx. If no adapters
-// is associated, DefaultContextLogger is returned, unless DefaultContextLogger
-// is nil, in which case a disabled adapters is returned.
-func (a *Adapter) Ctx(ctx context.Context) adapters.Logger {
-	if l, ok := ctx.Value(ctxKey{}).(adapters.Logger); ok {
-		return l
-	}
-	return &Adapter{adapters: zap.L()}
-}
-
-func (a *Adapter) WithContext(ctx context.Context) context.Context {
-	if _, ok := ctx.Value(ctxKey{}).(adapters.Logger); !ok {
-		return ctx
-	}
-	return context.WithValue(ctx, ctxKey{}, a)
 }
 
 // With returns the adapters with the given fields.
