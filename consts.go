@@ -1,6 +1,6 @@
 package logger
 
-import "github.com/XiBao/logger/adapters"
+import "github.com/XiBao/logger/v2/adapters"
 
 // Level defines log levels.
 const (

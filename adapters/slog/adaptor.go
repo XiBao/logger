@@ -9,7 +9,7 @@ import (
 
 	"golang.org/x/exp/slog"
 
-	"github.com/XiBao/logger/adapters"
+	"github.com/XiBao/logger/v2/adapters"
 )
 
 // Compile-time check that Adapter and Context implements adapters.Logger and adapters.LoggerContext respectively

@@ -1,4 +1,4 @@
-module github.com/XiBao/logger
+module github.com/XiBao/logger/v2
 
 go 1.20
 
