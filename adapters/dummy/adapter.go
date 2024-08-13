@@ -1,7 +1,6 @@
 package dummy
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"sync"
@@ -22,7 +21,7 @@ var (
 )
 
 type (
-	Adapter struct{}
+	Adapter struct{ adapters.Adapter }
 
 	Context struct{}
 )
@@ -38,8 +37,6 @@ func releaseContext(ctx *Context) {
 // NewAdapter returns a new adapter. The nop adapter does not log anything and can be used as a placeholder or fallback.
 func NewAdapter() adapters.Logger { return &Adapter{} }
 
-func (a *Adapter) Ctx(_ context.Context) adapters.Logger             { return &Adapter{} }
-func (a *Adapter) WithContext(ctx context.Context) context.Context   { return ctx }
 func (a *Adapter) With(_ ...any) adapters.Logger                     { return a }
 func (a *Adapter) WithLevel(_ adapters.Level) adapters.LoggerContext { return newContext() }
 func (a *Adapter) Debug() adapters.LoggerContext                     { return newContext() }

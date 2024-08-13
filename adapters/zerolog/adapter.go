@@ -1,7 +1,6 @@
 package zerolog
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"sync"
@@ -26,6 +25,7 @@ var (
 type (
 	// Adapter is a zerolog adapter for adapters. It implements the adapters.Logger interface.
 	Adapter struct {
+		adapters.Adapter
 		adapters *zerolog.Logger
 	}
 
@@ -50,17 +50,6 @@ func newContext(event *zerolog.Event) *Context {
 
 func releaseContext(ctx *Context) {
 	contextPool.Put(ctx)
-}
-
-// Ctx returns the Logger associated with the ctx.
-func (a *Adapter) Ctx(ctx context.Context) adapters.Logger {
-	adapters := zerolog.Ctx(ctx)
-	return &Adapter{adapters: adapters}
-}
-
-// WithContext returns a copy of ctx with the receiver attached.
-func (a *Adapter) WithContext(ctx context.Context) context.Context {
-	return a.adapters.WithContext(ctx)
 }
 
 // With returns the adapters with the given fields.

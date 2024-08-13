@@ -7,6 +7,19 @@ import (
 	"time"
 )
 
+type (
+	CtxKey = struct{}
+
+	Adapter struct{}
+)
+
+func (a *Adapter) WithContext(ctx context.Context) context.Context {
+	if _, ok := ctx.Value(CtxKey{}).(Logger); !ok {
+		return ctx
+	}
+	return context.WithValue(ctx, CtxKey{}, a)
+}
+
 // Fields type is an alias for a map that stores key-value pairs.
 type Fields = map[string]any
 
@@ -41,9 +54,6 @@ type Logger interface {
 
 	// WithContext returns a copy of ctx with the receiver attached.
 	WithContext(context.Context) context.Context
-
-	// Ctx returns the Logger associated with the ctx.
-	Ctx(ctx context.Context) Logger
 }
 
 // LoggerContext interface provides methods for adding context to logs.
