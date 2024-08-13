@@ -9,7 +9,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/XiBao/logger/adapters"
+	"github.com/XiBao/logger/v2/adapters"
 )
 
 // Compile-time check that Adapter and Context implements onelog.Logger and onelog.LoggerContext respectively

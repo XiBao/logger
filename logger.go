@@ -1,8 +1,8 @@
 package logger
 
 import (
-	"github.com/XiBao/logger/adapters"
-	"github.com/XiBao/logger/adapters/dummy"
+	"github.com/XiBao/logger/v2/adapters"
+	"github.com/XiBao/logger/v2/adapters/dummy"
 )
 
 var defaultLogger = (adapters.Logger)(new(dummy.Adapter))
