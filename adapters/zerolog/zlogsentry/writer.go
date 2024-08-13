@@ -14,8 +14,8 @@ import (
 )
 
 type ErrWithStackTrace struct {
-	Err        string             `json:"error"`
 	Stacktrace *sentry.Stacktrace `json:"stacktrace"`
+	Err        string             `json:"error"`
 }
 
 var levelsMapping = map[zerolog.Level]sentry.Level{
@@ -229,12 +229,12 @@ type optionFunc func(*config)
 func (fn optionFunc) apply(c *config) { fn(c) }
 
 type config struct {
-	levels             []zerolog.Level
-	ignoreErrors       []string
+	tracesSampler      sentry.TracesSampler
 	release            string
 	environment        string
 	serverName         string
-	tracesSampler      sentry.TracesSampler
+	levels             []zerolog.Level
+	ignoreErrors       []string
 	sampleRate         float64
 	tracesSampleRate   float64
 	profilesSampleRate float64
