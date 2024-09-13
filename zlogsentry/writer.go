@@ -234,7 +234,7 @@ func WithBreadcrumbs() WriterOption {
 	})
 }
 
-func New(dsn string, opts ...WriterOption) (*Writer, error) {
+func New(opts ...WriterOption) (*Writer, error) {
 	cfg := newDefaultConfig()
 	if len(opts) > 0 {
 		for _, opt := range opts {
