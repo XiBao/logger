@@ -2,7 +2,6 @@ package zlogsentry
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -14,8 +13,8 @@ import (
 )
 
 type ErrWithStackTrace struct {
-	Err        string             `json:"error"`
 	Stacktrace *sentry.Stacktrace `json:"stacktrace"`
+	Err        string             `json:"error"`
 }
 
 var levelsMapping = map[zerolog.Level]sentry.Level{
@@ -30,10 +29,7 @@ var levelsMapping = map[zerolog.Level]sentry.Level{
 var _ = io.WriteCloser(new(Writer))
 
 type Writer struct {
-	hub *sentry.Hub
-
 	levels          map[zerolog.Level]struct{}
-	flushTimeout    time.Duration
 	withBreadcrumbs bool
 }
 
@@ -51,12 +47,12 @@ func (w *Writer) addBreadcrumb(event *sentry.Event) {
 		}
 	}
 
-	w.hub.AddBreadcrumb(&sentry.Breadcrumb{
+	sentry.AddBreadcrumb(&sentry.Breadcrumb{
 		Category: category,
 		Message:  event.Message,
 		Level:    event.Level,
 		Data:     event.Extra,
-	}, nil)
+	})
 }
 
 func (w *Writer) Write(data []byte) (int, error) {
@@ -77,11 +73,7 @@ func (w *Writer) Write(data []byte) (int, error) {
 		return n, nil
 	}
 
-	w.hub.CaptureEvent(event)
-	// should flush before os.Exit
-	if event.Level == sentry.LevelFatal {
-		w.hub.Flush(w.flushTimeout)
-	}
+	sentry.CaptureEvent(event)
 
 	return len(data), nil
 }
@@ -105,16 +97,11 @@ func (w *Writer) WriteLevel(level zerolog.Level, p []byte) (n int, err error) {
 		return
 	}
 
-	w.hub.CaptureEvent(event)
-	// should flush before os.Exit
-	if event.Level == sentry.LevelFatal {
-		w.hub.Flush(w.flushTimeout)
-	}
+	sentry.CaptureEvent(event)
 	return
 }
 
 func (w *Writer) Close() error {
-	w.hub.Flush(w.flushTimeout)
 	return nil
 }
 
@@ -229,60 +216,14 @@ type optionFunc func(*config)
 func (fn optionFunc) apply(c *config) { fn(c) }
 
 type config struct {
-	levels             []zerolog.Level
-	ignoreErrors       []string
-	release            string
-	environment        string
-	serverName         string
-	tracesSampler      sentry.TracesSampler
-	sampleRate         float64
-	tracesSampleRate   float64
-	profilesSampleRate float64
-	flushTimeout       time.Duration
-	maxErrorDepth      int
-	breadcrumbs        bool
-	enableTracing      bool
-	debug              bool
+	levels      []zerolog.Level
+	breadcrumbs bool
 }
 
 // WithLevels configures zerolog levels that have to be sent to Sentry. Default levels are error, fatal, panic
 func WithLevels(levels ...zerolog.Level) WriterOption {
 	return optionFunc(func(cfg *config) {
 		cfg.levels = levels
-	})
-}
-
-// WithSampleRate configures the sample rate as a percentage of events to be sent in the range of 0.0 to 1.0
-func WithSampleRate(rate float64) WriterOption {
-	return optionFunc(func(cfg *config) {
-		cfg.sampleRate = rate
-	})
-}
-
-func WithRelease(release string) WriterOption {
-	return optionFunc(func(cfg *config) {
-		cfg.release = release
-	})
-}
-
-func WithEnvironment(environment string) WriterOption {
-	return optionFunc(func(cfg *config) {
-		cfg.environment = environment
-	})
-}
-
-// WithServerName configures the server name field for events. Default value is OS hostname
-func WithServerName(serverName string) WriterOption {
-	return optionFunc(func(cfg *config) {
-		cfg.serverName = serverName
-	})
-}
-
-// WithIgnoreErrors configures the list of regexp strings that will be used to match against event's message
-// and if applicable, caught errors type and value. If the match is found, then a whole event will be dropped.
-func WithIgnoreErrors(reList []string) WriterOption {
-	return optionFunc(func(cfg *config) {
-		cfg.ignoreErrors = reList
 	})
 }
 
@@ -293,67 +234,12 @@ func WithBreadcrumbs() WriterOption {
 	})
 }
 
-func WithEnableTracing(enableTracing bool) WriterOption {
-	return optionFunc(func(cfg *config) {
-		cfg.enableTracing = enableTracing
-	})
-}
-
-func WithTracesSampleRate(tracesSampleRate float64) WriterOption {
-	return optionFunc(func(cfg *config) {
-		cfg.tracesSampleRate = tracesSampleRate
-	})
-}
-
-func WithTracesSampler(tracesSampler sentry.TracesSampler) WriterOption {
-	return optionFunc(func(cfg *config) {
-		cfg.tracesSampler = tracesSampler
-	})
-}
-
-func WithProfilesSampleRate(profilesSampleRate float64) WriterOption {
-	return optionFunc(func(cfg *config) {
-		cfg.profilesSampleRate = profilesSampleRate
-	})
-}
-
-// WithMaxErrorDepth sets the max depth of error chain.
-func WithMaxErrorDepth(maxErrorDepth int) WriterOption {
-	return optionFunc(func(cfg *config) {
-		cfg.maxErrorDepth = maxErrorDepth
-	})
-}
-
-// WithDebug enables sentry client debug logs
-func WithDebug() WriterOption {
-	return optionFunc(func(cfg *config) {
-		cfg.debug = true
-	})
-}
-
 func New(dsn string, opts ...WriterOption) (*Writer, error) {
 	cfg := newDefaultConfig()
 	if len(opts) > 0 {
 		for _, opt := range opts {
 			opt.apply(&cfg)
 		}
-		err := sentry.Init(sentry.ClientOptions{
-			Dsn:                dsn,
-			SampleRate:         cfg.sampleRate,
-			Release:            cfg.release,
-			Environment:        cfg.environment,
-			ServerName:         cfg.serverName,
-			IgnoreErrors:       cfg.ignoreErrors,
-			EnableTracing:      cfg.enableTracing,
-			TracesSampleRate:   cfg.tracesSampleRate,
-			ProfilesSampleRate: cfg.profilesSampleRate,
-			TracesSampler:      cfg.tracesSampler,
-			MaxErrorDepth:      cfg.maxErrorDepth,
-			Debug:              cfg.debug,
-		})
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	levels := make(map[zerolog.Level]struct{}, len(cfg.levels))
@@ -362,33 +248,7 @@ func New(dsn string, opts ...WriterOption) (*Writer, error) {
 	}
 
 	return &Writer{
-		hub:             sentry.CurrentHub(),
 		levels:          levels,
-		flushTimeout:    cfg.flushTimeout,
-		withBreadcrumbs: cfg.breadcrumbs,
-	}, nil
-}
-
-// NewWithHub creates a writer using an existing sentry Hub and options.
-func NewWithHub(hub *sentry.Hub, opts ...WriterOption) (*Writer, error) {
-	if hub == nil {
-		return nil, errors.New("hub cannot be nil")
-	}
-
-	cfg := newDefaultConfig()
-	for _, opt := range opts {
-		opt.apply(&cfg)
-	}
-
-	levels := make(map[zerolog.Level]struct{}, len(cfg.levels))
-	for _, lvl := range cfg.levels {
-		levels[lvl] = struct{}{}
-	}
-
-	return &Writer{
-		hub:             hub,
-		levels:          levels,
-		flushTimeout:    cfg.flushTimeout,
 		withBreadcrumbs: cfg.breadcrumbs,
 	}, nil
 }
@@ -400,7 +260,5 @@ func newDefaultConfig() config {
 			zerolog.FatalLevel,
 			zerolog.PanicLevel,
 		},
-		sampleRate:   1.0,
-		flushTimeout: 3 * time.Second,
 	}
 }
