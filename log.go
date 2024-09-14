@@ -23,8 +23,10 @@ func init() {
 	}
 }
 
-var Logger = log.Logger.With().Logger()
-var LoggerHook = log.Logger.With().Caller().Logger()
+var (
+	Logger     = log.Logger.With().Logger()
+	LoggerHook = log.Logger.With().Caller().Logger()
+)
 
 func Array(v ...interface{}) *zerolog.Array {
 	if len(v) == 0 {

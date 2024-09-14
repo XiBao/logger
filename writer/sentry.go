@@ -1,4 +1,4 @@
-package zlogsentry
+package writer
 
 import (
 	"encoding/json"
@@ -7,15 +7,11 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/XiBao/logger/common"
 	"github.com/getsentry/sentry-go"
 	"github.com/rs/zerolog"
 	"github.com/tidwall/gjson"
 )
-
-type ErrWithStackTrace struct {
-	Stacktrace *sentry.Stacktrace `json:"stacktrace"`
-	Err        string             `json:"error"`
-}
 
 var levelsMapping = map[zerolog.Level]sentry.Level{
 	zerolog.DebugLevel: sentry.LevelDebug,
@@ -133,10 +129,10 @@ func (w *Writer) parseLogEvent(data []byte) (*sentry.Event, bool) {
 		case zerolog.ErrorFieldName:
 			errExept = append(errExept, sentry.Exception{
 				Value:      value.String(),
-				Stacktrace: newStacktrace(),
+				Stacktrace: common.Stacktrace(),
 			})
 		case zerolog.ErrorStackFieldName:
-			var e ErrWithStackTrace
+			var e common.ErrWithStackTrace
 			err := json.Unmarshal([]byte(value.Raw), &e)
 			if err != nil {
 				event.Level = sentry.LevelError
@@ -166,39 +162,6 @@ func (w *Writer) parseLogEvent(data []byte) (*sentry.Event, bool) {
 	}
 
 	return &event, true
-}
-
-func newStacktrace() *sentry.Stacktrace {
-	const (
-		currentModule = "github.com/XiBao/logger/zlogsentry"
-		zerologModule = "github.com/rs/zerolog"
-	)
-
-	st := sentry.NewStacktrace()
-
-	threshold := len(st.Frames) - 1
-	// drop current module frames
-	for ; threshold > 0 && st.Frames[threshold].Module == currentModule; threshold-- {
-	}
-
-outer:
-	// try to drop zerolog module frames after logger call point
-	for i := threshold; i > 0; i-- {
-		if st.Frames[i].Module == zerologModule {
-			for j := i - 1; j >= 0; j-- {
-				if st.Frames[j].Module != zerologModule {
-					threshold = j
-					break outer
-				}
-			}
-
-			break
-		}
-	}
-
-	st.Frames = st.Frames[:threshold+1]
-
-	return st
 }
 
 func bytesToStrUnsafe(data []byte) string {
