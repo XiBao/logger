@@ -22,6 +22,10 @@ var levelsMapping = map[zerolog.Level]sentry.Level{
 	zerolog.PanicLevel: sentry.LevelFatal,
 }
 
+const (
+	FieldTransaction = "sentry.tx"
+)
+
 var _ = io.WriteCloser(new(Writer))
 
 type Writer struct {
@@ -131,6 +135,8 @@ func (w *Writer) parseLogEvent(data []byte) (*sentry.Event, bool) {
 				Value:      value.String(),
 				Stacktrace: common.Stacktrace(),
 			})
+		case FieldTransaction:
+			event.Transaction = value.String()
 		case zerolog.ErrorStackFieldName:
 			var e common.ErrWithStackTrace
 			err := json.Unmarshal([]byte(value.Raw), &e)
