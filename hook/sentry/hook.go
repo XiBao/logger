@@ -21,11 +21,11 @@ func (h Hook) Run(event *zerolog.Event, level zerolog.Level, message string) {
 		captured := h.convertEvent(event, level, message)
 		hub := sentry.GetHubFromContext(ctx)
 		if hub == nil {
-			hub = sentry.CurrentHub()
-			if client, scope := hub.Client(), hub.Scope(); client != nil {
-				client.CaptureEvent(&captured, &sentry.EventHint{Context: ctx}, scope)
-				return
-			}
+			hub = sentry.CurrentHub().Clone()
+		}
+		if client, scope := hub.Client(), hub.Scope(); client != nil {
+			client.CaptureEvent(&captured, &sentry.EventHint{Context: ctx}, scope)
+			return
 		}
 		hub.CaptureEvent(&captured)
 	}
