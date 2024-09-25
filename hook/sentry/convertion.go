@@ -2,6 +2,7 @@ package sentry
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -12,7 +13,7 @@ import (
 	"github.com/rs/zerolog"
 )
 
-func (h Hook) convertEvent(e *zerolog.Event, level zerolog.Level, message string) sentry.Event {
+func (h Hook) convertEvent(e *zerolog.Event, level zerolog.Level, message string) (sentry.Event, error) {
 	var record sentry.Event
 
 	record.Level = sentry.Level(level.String())
@@ -20,10 +21,16 @@ func (h Hook) convertEvent(e *zerolog.Event, level zerolog.Level, message string
 	record.Timestamp = zerolog.TimestampFunc()
 	fields := convertFields(e)
 	record.Extra = make(map[string]interface{}, len(fields))
+	var retErr error
 	for k, v := range fields {
 		switch k {
 		case zerolog.ErrorFieldName:
 			if err, ok := v.(error); ok {
+				if retErr == nil {
+					retErr = err
+				} else {
+					retErr = errors.Join(retErr, err)
+				}
 				record.SetException(err, -1)
 			} else {
 				record.Exception = append(record.Exception, sentry.Exception{
@@ -35,7 +42,7 @@ func (h Hook) convertEvent(e *zerolog.Event, level zerolog.Level, message string
 			record.Extra[k] = v
 		}
 	}
-	return record
+	return record, retErr
 }
 
 // convertFields extracts and converts zerolog event fields to OpenTelemetry key-value pairs.

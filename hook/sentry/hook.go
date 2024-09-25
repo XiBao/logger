@@ -5,6 +5,8 @@ import (
 
 	"github.com/getsentry/sentry-go"
 	"github.com/rs/zerolog"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const FlushTimeout = 2 * time.Second
@@ -18,7 +20,7 @@ func NewHook() *Hook {
 func (h Hook) Run(event *zerolog.Event, level zerolog.Level, message string) {
 	if level == zerolog.ErrorLevel {
 		ctx := event.GetCtx()
-		captured := h.convertEvent(event, level, message)
+		captured, err := h.convertEvent(event, level, message)
 		hub := sentry.GetHubFromContext(ctx)
 		if hub == nil {
 			hub = sentry.CurrentHub().Clone()
@@ -28,6 +30,12 @@ func (h Hook) Run(event *zerolog.Event, level zerolog.Level, message string) {
 			return
 		}
 		hub.CaptureEvent(&captured)
+		if err != nil {
+			if span := trace.SpanFromContext(ctx); span.IsRecording() {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, err.Error())
+			}
+		}
 	}
 
 	if level == zerolog.FatalLevel || level == zerolog.PanicLevel {
