@@ -23,6 +23,10 @@ import (
 	"go.opentelemetry.io/otel/log/global"
 )
 
+const (
+	instrumentName = "github.com/XiBao/logger/hook/otel"
+)
+
 // Hook struct defines a logger hook for the zerolog logging library.
 type Hook struct{}
 
@@ -42,7 +46,7 @@ func (h Hook) Run(event *zerolog.Event, level zerolog.Level, message string) {
 	ctx := event.GetCtx()
 
 	// Extract context from the event.
-	record := h.convertEvent(event, level, message) // Convert zerolog event to OpenTelemetry log record.
-	provider := global.GetLoggerProvider()          // Get the global logger provider.
-	provider.Logger("").Emit(ctx, record)           // Emit the log record.
+	record := h.convertEvent(event, level, message)   // Convert zerolog event to OpenTelemetry log record.
+	provider := global.GetLoggerProvider()            // Get the global logger provider.
+	provider.Logger(instrumentName).Emit(ctx, record) // Emit the log record.
 }
