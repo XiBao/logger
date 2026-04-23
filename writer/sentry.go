@@ -7,10 +7,11 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/XiBao/logger/common"
 	"github.com/getsentry/sentry-go"
 	"github.com/rs/zerolog"
 	"github.com/tidwall/gjson"
+
+	"github.com/XiBao/logger/common"
 )
 
 var levelsMapping = map[zerolog.Level]sentry.Level{
@@ -39,19 +40,18 @@ func (w *Writer) addBreadcrumb(event *sentry.Event) {
 		return
 	}
 
-	// category is totally optional, but it's nice to have
-	var category string
-	if _, ok := event.Extra["category"]; ok {
-		if v, ok := event.Extra["category"].(string); ok {
-			category = v
+	var data map[string]interface{}
+	if l := len(event.Contexts); l > 0 {
+		data := make(map[string]interface{}, l)
+		for k, v := range event.Contexts {
+			data[k] = v
 		}
 	}
 
 	sentry.AddBreadcrumb(&sentry.Breadcrumb{
-		Category: category,
-		Message:  event.Message,
-		Level:    event.Level,
-		Data:     event.Extra,
+		Message: event.Message,
+		Level:   event.Level,
+		Data:    data,
 	})
 }
 
@@ -84,21 +84,21 @@ func (w *Writer) WriteLevel(level zerolog.Level, p []byte) (n int, err error) {
 
 	event, ok := w.parseLogEvent(p)
 	if !ok {
-		return
+		return n, err
 	}
 	event.Level, ok = levelsMapping[level]
 	if !ok {
-		return
+		return n, err
 	}
 
 	if _, enabled := w.levels[level]; !enabled {
 		// if the level is not enabled, add event as a breadcrumb
 		w.addBreadcrumb(event)
-		return
+		return n, err
 	}
 
 	sentry.CaptureEvent(event)
-	return
+	return n, err
 }
 
 func (w *Writer) Close() error {
