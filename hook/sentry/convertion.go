@@ -8,9 +8,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/XiBao/logger/common"
 	"github.com/getsentry/sentry-go"
 	"github.com/rs/zerolog"
+
+	"github.com/XiBao/logger/common"
 )
 
 func (h Hook) convertEvent(e *zerolog.Event, level zerolog.Level, message string) (sentry.Event, error) {
@@ -20,7 +21,7 @@ func (h Hook) convertEvent(e *zerolog.Event, level zerolog.Level, message string
 	record.Message = message
 	record.Timestamp = zerolog.TimestampFunc()
 	fields := convertFields(e)
-	record.Extra = make(map[string]interface{}, len(fields))
+	extra := make(map[string]interface{}, len(fields))
 	var retErr error
 	for k, v := range fields {
 		switch k {
@@ -39,7 +40,12 @@ func (h Hook) convertEvent(e *zerolog.Event, level zerolog.Level, message string
 				})
 			}
 		default:
-			record.Extra[k] = v
+			extra[k] = v
+		}
+	}
+	if len(extra) > 0 {
+		record.Contexts = map[string]sentry.Context{
+			"extra": extra,
 		}
 	}
 	return record, retErr
